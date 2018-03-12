@@ -1,0 +1,91 @@
+---
+title: "STAT 440 - Quiz 2"
+author: "Handi Gao"
+date: '2018-01-30'
+output: pdf_document
+---
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library("glmnet")
+```
+
+# Data and Model
+
+The Wisconsin Diagnostic Breast Cancer (WDBC) dataset consists of 30 features of cell
+nuclei extracted from 569 digitized images of benign and malignant breast tumors.
+```{r}
+tumor <- read.csv("wdbc.csv")
+dim(tumor)
+colnames(tumor)
+```
+
+In addition to the patient ID (variable $\tt id$) and diagnosis (variable $\tt diag$; M = malignant, B = benign), the 30 real-valued cell nuclei features are of the form $\tt feature\{M/SE/W\}$, where the suffix stands for mean, standard error, and worst along the following ten nuclei characteristics:
+
+* $\tt rad$: radius (mean of distances from center to points on the perimeter).
+* $\tt text$: texture (standard deviation of gray-scale values).
+* $\tt perim$: perimeter.
+* $\tt area$: area.
+* $\tt smooth$: smoothness (local variation in radius lengths).
+* $\tt compact$: compactness (perimeter$^2$ $/$ area $-1$).
+* $\tt conc$: concavity (severity of concave portions of the contour).
+* $\tt cpts$: concave points (number of concave portions of the contour).
+* $\tt sym$: symmetry.
+* $\tt frac$: fractal dimension ("coastline approximation" $-1$).
+
+
+
+The purpose of this report is to determine the important predictors of malignant tumors using a penalized logistic regression. The logistic regression model is
+
+\begin{equation*}
+y_i\mid \boldsymbol{x}_i \overset{\text{ind}}{\sim} \text{Bernoulli}(\rho_i),
+   \quad\quad 
+\rho_i = \text{logit}^{-1}(\boldsymbol{x}^{'}_i \boldsymbol\beta) =\frac{1}{1+\text{exp} (-\boldsymbol{x}^{'}_i \boldsymbol\beta)^{'}}
+\end{equation*}
+
+where $y$ is the diagnostic (${\tt diag}$) binary response, and $\boldsymbol x$ is a vector of 31 predictors (including the intercept term).
+
+The logistic regression model results in a loglikelihood function $l(\boldsymbol{\beta}|\boldsymbol{y},\boldsymbol{X})$. The penalty function on $\boldsymbol{\beta} = (\beta_0,...,\beta_{30})$ is Elastic Net, such that for fixed $\alpha$ and $\lambda$, the penalized likelihood estimator is 
+
+$$
+\tilde {\boldsymbol\beta} = \underset{\boldsymbol{\beta}}{\mathrm{arg\ max}}\Bigg[l(\boldsymbol{\beta}|\boldsymbol{y},\boldsymbol{X})-\lambda \sum_{j=1}^{30}(1-\alpha)\beta_j^2+\alpha|\beta_j|\Bigg]
+$$
+
+# Result
+
+## Penalized Likelihood
+
+In this section, we are going to fit a generalized linear model for the Wisconsin Diagnostic Breast Cancer (WDBC) data, and then estimate the optimal value of $\lambda$.
+
+```{r}
+attach(tumor)
+# build observation matrix
+X <- as.matrix(tumor[, -c(1,2)])
+# fit model using glmnet with alpha set to 0.5
+fit = glmnet(x=X, diag, family = "binomial", 
+             alpha = 0.5)
+# estimate the optimal value of lambda use 15-fold cross-validation
+cvfit = cv.glmnet(x= X, diag, family = "binomial", nfolds = 15)
+# select lambda hat
+lambda.hat <- cvfit$lambda.1se
+par(mfrow=c(1,2))
+plot(fit, xvar = "lambda", label = TRUE)
+abline(v=log(lambda.hat), lty = 2)
+plot(cvfit)
+```
+
+The above code gives us two plots:
+
+* The plot on the left hand side is the entire solution path for the penalized logistic regression with the WDBC data for $\alpha=0.5$. As we can see from the plot, as $log(\lambda)$ approaches $0$, $\boldsymbol{\beta}$ also approaches $\boldsymbol{0}$. That is, as the penalty becomes larger, fewer and fewer variables are included in the model. The vertical line in the plot is the estimate of $\lambda$ selected by cross-validation.
+
+* The plot on the right hand side is the results of a 15-fold cross-validation on the Deviance metric as a function of $log(\lambda)$. From this plot we see that as $\lambda$ increases the deviance first decreases to its minimum then increases back up. This tells us that when we either include too many variables or only few variables, the error is large. So we want to balance between the number of variables included and the deviance by choosing the largest value of lambda such that error is within 1 standard error of the minimum, i.e. $\hat\lambda_{1se}$.
+
+
+## Variable Selection
+
+The non-zero penalized regression estimates $\tilde{\boldsymbol\beta}(\hat\lambda_{1se})$ are:
+```{r}
+# non-zero coefficients except for the intercept
+nz <- nonzeroCoef(coef(cvfit,s=lambda.hat))[-1]
+coef(cvfit,s=lambda.hat)[nz,]
+```
+
+According to the above result, we can conclude that ${\tt fracSE}$, ${\tt cptsW}$, ${\tt cptsM}$, and ${\tt smoothW}$ are features of tumor cell nuclei that are most predictive of a malignant growth. Please note that the coefficient of ${\tt fracSE}$ is a negtive number with large magnitude, i.e. it negatively affects the response (${\tt diag}$) significantly. However, it may not show up in the list under different cross-validations.
